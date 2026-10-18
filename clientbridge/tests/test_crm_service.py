@@ -1,8 +1,11 @@
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
+
+import httpx
+import pytest
 
 from app.core.config import settings
-from app.services.crm_service import compute_backoff
+from app.services.crm_service import CRMClient, compute_backoff
 
 
 def test_backoff_never_exceeds_maximum():
@@ -23,3 +26,28 @@ def test_backoff_starts_from_base_delay():
         delay = compute_backoff(1)
 
     assert delay == settings.BACKOFF_BASE_SECONDS
+
+
+@pytest.mark.asyncio
+async def test_crm_timeout_is_retryable():
+    crm = CRMClient()
+
+    try:
+        with patch.object(
+            crm._client,
+            "post",
+            new_callable=AsyncMock,
+            side_effect=httpx.ReadTimeout("Simulated CRM timeout"),
+        ):
+            result = await crm.send_order(
+                order_id="ORD-TIMEOUT-TEST-001",
+                customer_email="timeout@example.com",
+                total_amount=1500,
+            )
+
+        assert result.status_code == 0
+        assert result.retryable is True
+        assert result.crm_id is None
+        assert "Timeout" in result.error
+    finally:
+        await crm.aclose()

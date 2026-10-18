@@ -47,28 +47,16 @@ async def test_mark_synced_returns_false_when_lease_is_lost():
     fake_result.scalar_one_or_none.return_value = None
     fake_session.execute.return_value = fake_result
 
-    fake_session_context = MagicMock()
-    fake_session_context.__aenter__ = AsyncMock(
-        return_value=fake_session
-    )
-    fake_session_context.__aexit__ = AsyncMock(
-        return_value=None
-    )
+    fake_context = MagicMock()
+    fake_context.__aenter__ = AsyncMock(return_value=fake_session)
+    fake_context.__aexit__ = AsyncMock(return_value=None)
 
-    crm_result = CRMResult(
-        status_code=200,
-        crm_id="CRM-TEST-1",
-    )
+    crm_result = CRMResult(status_code=200, crm_id="CRM-TEST-1")
 
     with patch.object(
-        polling_worker,
-        "SessionLocal",
-        return_value=fake_session_context,
+        polling_worker, "SessionLocal", return_value=fake_context
     ):
-        saved = await polling_worker.mark_synced(
-            claimed,
-            crm_result,
-        )
+        saved = await polling_worker.mark_synced(claimed, crm_result)
 
     assert saved is False
     fake_session.add.assert_not_called()
@@ -92,13 +80,9 @@ async def test_mark_failed_attempt_returns_false_when_lease_is_lost():
     fake_result.scalar_one_or_none.return_value = None
     fake_session.execute.return_value = fake_result
 
-    fake_session_context = MagicMock()
-    fake_session_context.__aenter__ = AsyncMock(
-        return_value=fake_session
-    )
-    fake_session_context.__aexit__ = AsyncMock(
-        return_value=None
-    )
+    fake_context = MagicMock()
+    fake_context.__aenter__ = AsyncMock(return_value=fake_session)
+    fake_context.__aexit__ = AsyncMock(return_value=None)
 
     crm_result = CRMResult(
         status_code=500,
@@ -107,14 +91,9 @@ async def test_mark_failed_attempt_returns_false_when_lease_is_lost():
     )
 
     with patch.object(
-        polling_worker,
-        "SessionLocal",
-        return_value=fake_session_context,
+        polling_worker, "SessionLocal", return_value=fake_context
     ):
-        saved = await polling_worker.mark_failed_attempt(
-            claimed,
-            crm_result,
-        )
+        saved = await polling_worker.mark_failed_attempt(claimed, crm_result)
 
     assert saved is False
     fake_session.add.assert_not_called()
@@ -138,13 +117,9 @@ async def test_fifth_retryable_failure_marks_order_failed():
     fake_result.scalar_one_or_none.return_value = claimed.pk
     fake_session.execute.return_value = fake_result
 
-    fake_session_context = MagicMock()
-    fake_session_context.__aenter__ = AsyncMock(
-        return_value=fake_session
-    )
-    fake_session_context.__aexit__ = AsyncMock(
-        return_value=None
-    )
+    fake_context = MagicMock()
+    fake_context.__aenter__ = AsyncMock(return_value=fake_session)
+    fake_context.__aexit__ = AsyncMock(return_value=None)
 
     crm_result = CRMResult(
         status_code=503,
@@ -153,21 +128,14 @@ async def test_fifth_retryable_failure_marks_order_failed():
     )
 
     with patch.object(
-        polling_worker,
-        "SessionLocal",
-        return_value=fake_session_context,
+        polling_worker, "SessionLocal", return_value=fake_context
     ):
-        saved = await polling_worker.mark_failed_attempt(
-            claimed,
-            crm_result,
-        )
+        saved = await polling_worker.mark_failed_attempt(claimed, crm_result)
 
     assert saved is True
 
-    update_statement = fake_session.execute.call_args.args[0]
-    compiled = update_statement.compile(
-        dialect=postgresql.dialect()
-    )
+    statement = fake_session.execute.call_args.args[0]
+    compiled = statement.compile(dialect=postgresql.dialect())
 
     sql = str(compiled).lower()
     params = compiled.params
@@ -176,7 +144,6 @@ async def test_fifth_retryable_failure_marks_order_failed():
     assert "retry_count" in sql
     assert "status" in sql
     assert "next_retry_at" in sql
-
     assert 5 in params.values()
     assert OrderStatus.FAILED.value in params.values()
     assert any(
@@ -186,7 +153,61 @@ async def test_fifth_retryable_failure_marks_order_failed():
     )
 
     fake_session.add.assert_called_once()
-    assert isinstance(
-        fake_session.add.call_args.args[0],
-        SyncAttempt,
+    assert isinstance(fake_session.add.call_args.args[0], SyncAttempt)
+
+
+@pytest.mark.asyncio
+async def test_retryable_failure_returns_order_to_pending():
+    claimed = polling_worker.ClaimedOrder(
+        pk=uuid.uuid4(),
+        order_id="ORD-RETRY-TEST",
+        customer_email="test@example.com",
+        total_amount=Decimal("10.00"),
+        retry_count=0,
+        lease_token=uuid.uuid4(),
     )
+
+    fake_session = MagicMock()
+    fake_session.execute = AsyncMock()
+
+    fake_result = MagicMock()
+    fake_result.scalar_one_or_none.return_value = claimed.pk
+    fake_session.execute.return_value = fake_result
+
+    fake_context = MagicMock()
+    fake_context.__aenter__ = AsyncMock(return_value=fake_session)
+    fake_context.__aexit__ = AsyncMock(return_value=None)
+
+    crm_result = CRMResult(
+        status_code=0,
+        error="Timeout: simulated timeout",
+        retryable=True,
+    )
+
+    with patch.object(
+        polling_worker, "SessionLocal", return_value=fake_context
+    ), patch.object(
+        polling_worker, "compute_backoff", return_value=2.0
+    ):
+        saved = await polling_worker.mark_failed_attempt(claimed, crm_result)
+
+    assert saved is True
+
+    statement = fake_session.execute.call_args.args[0]
+    compiled = statement.compile(dialect=postgresql.dialect())
+
+    sql = str(compiled).lower()
+    params = compiled.params
+
+    assert "retry_count" in sql
+    assert "next_retry_at" in sql
+    assert 1 in params.values()
+    assert OrderStatus.PENDING.value in params.values()
+    assert any(
+        value is not None
+        for key, value in params.items()
+        if "next_retry_at" in key
+    )
+
+    fake_session.add.assert_called_once()
+    assert isinstance(fake_session.add.call_args.args[0], SyncAttempt)

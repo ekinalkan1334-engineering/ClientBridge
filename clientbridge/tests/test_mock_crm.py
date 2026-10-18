@@ -5,8 +5,10 @@ from app.main import app
 from app.api.v1.endpoints import mock_crm
 
 
-def test_same_idempotency_key_returns_same_crm_id():
+def test_same_idempotency_key_returns_same_crm_id(monkeypatch):
     mock_crm._seen.clear()
+    monkeypatch.setattr(mock_crm.random, "random", lambda: 0.1)
+
     client = TestClient(app)
 
     headers = {"Idempotency-Key": "ORD-IDEMPOTENCY-001"}
