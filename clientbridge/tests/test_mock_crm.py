@@ -32,3 +32,4 @@ def test_same_idempotency_key_returns_same_crm_id(monkeypatch):
     assert first.status_code == 200
     assert second.status_code == 200
     assert first.json()["crm_id"] == second.json()["crm_id"]
+    assert len(mock_crm._seen) == 1
