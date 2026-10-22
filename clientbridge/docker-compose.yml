@@ -1,3 +1,4 @@
+
 services:
   db:
     image: postgres:16-alpine
@@ -10,7 +11,7 @@ services:
       timeout: 3s
       retries: 10
 
-  # Tek seferlik: tabloları kurar, sonra çıkar. api ve worker buna bağlı.
+  # Tek seferlik: tabloları kurar, sonra çıkar.
   migrate:
     build: .
     env_file: .env
@@ -29,7 +30,11 @@ services:
       migrate:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready', timeout=3)"]
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready', timeout=3)"
       interval: 10s
       timeout: 5s
       retries: 5
@@ -41,7 +46,7 @@ services:
     command: python -m app.workers.polling_worker
     depends_on:
       api:
-        condition: service_healthy
+        condition: service_started
     restart: unless-stopped
 
 volumes:

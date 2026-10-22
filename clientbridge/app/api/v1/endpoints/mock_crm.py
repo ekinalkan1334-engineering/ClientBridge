@@ -1,4 +1,5 @@
 
+import asyncio
 import random
 import string
 
@@ -26,6 +27,16 @@ async def mock_create_order(
             "status": "SUCCESS",
             "crm_id": _seen[idempotency_key],
         }
+
+    # Controlled crash-recovery test:
+    # Only dedicated test orders receive a delayed response.
+    order_id = payload.get("order_id", "")
+
+    if order_id.startswith("ORD-CRASH-RECOVERY-"):
+        crm_id = "CRM-CRASH-TEST-001"
+        _seen[idempotency_key] = crm_id
+        await asyncio.sleep(120)
+        return {"status": "SUCCESS", "crm_id": crm_id}
 
     roll = random.random()
 

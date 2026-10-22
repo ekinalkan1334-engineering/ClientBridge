@@ -7,7 +7,7 @@ from app.core.database import SessionLocal, engine
 from app.models.order import Order
 
 
-ORDER_ID = "ORD-E2E-20261017-01"
+ORDER_ID = "ORD-CONCURRENCY-20261021-01"
 
 
 async def main():
