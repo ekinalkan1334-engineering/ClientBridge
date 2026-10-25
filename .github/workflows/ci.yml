@@ -1,3 +1,4 @@
+
 name: ClientBridge CI
 
 on:
@@ -9,6 +10,21 @@ on:
 jobs:
   tests:
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: clientbridge
+          POSTGRES_PASSWORD: clientbridge
+          POSTGRES_DB: clientbridge_concurrency_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U clientbridge -d clientbridge_concurrency_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     defaults:
       run:
@@ -32,4 +48,6 @@ jobs:
           pip install pytest pytest-asyncio
 
       - name: Run automated tests
+        env:
+          TEST_DATABASE_URL: postgresql+asyncpg://clientbridge:clientbridge@localhost:5432/clientbridge_concurrency_test
         run: python -m pytest -q
