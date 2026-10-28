@@ -1,3 +1,4 @@
+
 import random
 from dataclasses import dataclass
 from decimal import Decimal
@@ -104,12 +105,11 @@ class CRMClient:
     async def is_reachable(self) -> bool:
         """Check whether the CRM server responds to HTTP requests."""
         try:
-            response = await self._client.get(
+            response = await self._client.options(
                 settings.CRM_ORDERS_PATH,
                 timeout=3.0,
             )
 
-            # A 405 response still means the server responded.
             return response.status_code < 500
 
         except httpx.HTTPError:
